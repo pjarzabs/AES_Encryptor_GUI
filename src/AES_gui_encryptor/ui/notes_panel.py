@@ -5,7 +5,7 @@ import customtkinter as ctk
 from .styles import TEXT_MUTED, card
 
 
-class NotesCard:
+class NotesPanel:
     def __init__(self, parent, *, row: int) -> None:
         self.parent = parent
         self.row = row
@@ -13,12 +13,13 @@ class NotesCard:
         self._build()
 
     def _build(self) -> None:
-        self.frame = card(self.parent, "Notes", self.row, bottom_padding=18)
+        self.frame = card(self.parent, "Warto wiedzieć:", self.row, bottom_padding=18)
 
         notes = (
-            "• AES-GCM checks integrity: wrong password or modified file => error.\n"
-            "• Decrypt auto-detects RAW/Base64 (tries RAW first, then Base64).\n"
-            "• MVP loads the whole file into memory (ok for typical coursework sizes)."
+            "• AES-GCM sprawdza integralność danych.\n"
+            "• Sól, nonce i parametry PBKDF2 są zapisywane w pliku.\n"
+            "• Program wczytuje cały plik do pamięci.\n"
+            "• Po zaszyfrowaniu, jeśli chcesz szybko odszyfrować ten sam plik, kliknij 'Zamień wej./wyj.', a następnie 'Odszyfruj'."
         )
 
         ctk.CTkLabel(

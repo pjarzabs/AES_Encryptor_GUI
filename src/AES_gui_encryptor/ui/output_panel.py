@@ -5,7 +5,7 @@ import customtkinter as ctk
 from .styles import INNER_RADIUS, TEXT_MUTED, card
 
 
-class OutputCard:
+class OutputPanel:
     def __init__(
         self,
         parent,
@@ -22,7 +22,7 @@ class OutputCard:
         self._build()
 
     def _build(self) -> None:
-        self.frame = card(self.parent, "Output Settings", self.row)
+        self.frame = card(self.parent, "Ustawienia pliku wyjściowego", self.row)
 
         row_frame = ctk.CTkFrame(self.frame, corner_radius=INNER_RADIUS)
         row_frame.grid(row=1, column=0, padx=16, pady=(0, 16), sticky="ew")
@@ -31,7 +31,7 @@ class OutputCard:
         left = ctk.CTkFrame(row_frame, corner_radius=INNER_RADIUS)
         left.grid(row=0, column=0, padx=12, pady=12, sticky="ew")
 
-        ctk.CTkLabel(left, text="Extension:", text_color=TEXT_MUTED).grid(
+        ctk.CTkLabel(left, text="Rozszerzenie:", text_color=TEXT_MUTED).grid(
             row=0,
             column=0,
             padx=(12, 8),
@@ -51,7 +51,7 @@ class OutputCard:
 
         self.base64_switch = ctk.CTkSwitch(
             right,
-            text="Save as Base64 text",
+            text="Zapisz dane w formacie base64",
             variable=self.base64_variable,
         )
         self.base64_switch.grid(row=0, column=0, padx=14, pady=12)

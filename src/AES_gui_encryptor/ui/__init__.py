@@ -1,0 +1,1 @@
+# Pakiet graficznego interfejsu użytkownika

@@ -3,25 +3,32 @@ from __future__ import annotations
 import base64
 import struct
 from dataclasses import dataclass
+
+from cryptography.exceptions import InvalidTag
+
 from ..config import (
     FORMAT_MAGIC,
     FORMAT_VERSION,
     KDF_ID_PBKDF2_SHA256,
     CIPHER_ID_AES_256_GCM,
 )
-from .errors import InvalidFormatError, UnsupportedVersionError
 from .crypto import CryptoMeta, decrypt_bytes
-from cryptography.exceptions import InvalidTag
+from .errors import (
+    InvalidFormatError,
+    UnsupportedVersionError,
+    WrongPasswordOrCorruptedFileError,
+)
 
 
-# Binary container format (v1):
-# [magic:4][ver:1][kdf_id:1][cipher_id:1][iters:u32be][salt_len:u8][nonce_len:u8][salt][nonce][ciphertext...]
-#
-# AAD = header bytes up to end of nonce (everything except ciphertext). This authenticates metadata too.
+# Format pliku (wersja 1):
+# [magic:4][ver:1][kdf_id:1][cipher_id:1][iters:u32be]
+# [salt_len:u8][nonce_len:u8][salt][nonce][ciphertext...]
+
+# AAD = wszystkie bajty nagłówka (wszystko oprócz zaszyfrowanych danych).
 
 
 @dataclass(frozen=True)
-class ContainerMeta:
+class FileFormatMeta:
     version: int
     kdf_id: int
     cipher_id: int
@@ -30,22 +37,29 @@ class ContainerMeta:
     nonce: bytes
 
 
-def _build_header(meta: ContainerMeta) -> bytes:
+def _build_header(meta: FileFormatMeta) -> bytes:
     if meta.version != FORMAT_VERSION:
-        raise UnsupportedVersionError(f"Unsupported container version: {meta.version}")
+        raise UnsupportedVersionError(
+            f"Nieobsługiwana wersja formatu pliku: {meta.version}"
+        )
 
     if meta.kdf_id != KDF_ID_PBKDF2_SHA256:
-        raise InvalidFormatError(f"Unsupported KDF id: {meta.kdf_id}")
+        raise InvalidFormatError(
+            f"Nieobsługiwany identyfikator KDF: {meta.kdf_id}"
+        )
 
     if meta.cipher_id != CIPHER_ID_AES_256_GCM:
-        raise InvalidFormatError(f"Unsupported cipher id: {meta.cipher_id}")
+        raise InvalidFormatError(
+            f"Nieobsługiwany identyfikator szyfru: {meta.cipher_id}"
+        )
 
     if not (0 < len(meta.salt) < 256):
-        raise ValueError("Salt length invalid.")
-    if not (0 < len(meta.nonce) < 256):
-        raise ValueError("Nonce length invalid.")
+        raise ValueError("Nieprawidłowa długość soli.")
 
-    fixed = struct.pack(
+    if not (0 < len(meta.nonce) < 256):
+        raise ValueError("Nieprawidłowa długość nonce.")
+
+    fixed_header = struct.pack(
         ">4sBBBIBB",
         FORMAT_MAGIC,
         meta.version,
@@ -55,91 +69,141 @@ def _build_header(meta: ContainerMeta) -> bytes:
         len(meta.salt),
         len(meta.nonce),
     )
-    return fixed + meta.salt + meta.nonce
+
+    return fixed_header + meta.salt + meta.nonce
 
 
-def pack_container(ciphertext: bytes, meta: ContainerMeta) -> bytes:
+def build_file_format(
+    ciphertext: bytes,
+    meta: FileFormatMeta,
+) -> bytes:
     header = _build_header(meta)
     return header + ciphertext
 
 
-def unpack_container(data: bytes) -> tuple[bytes, ContainerMeta, bytes]:
-    """Returns: ciphertext, meta, aad(header bytes)"""
+def parse_file_format(
+    data: bytes,
+) -> tuple[bytes, FileFormatMeta, bytes]:
+    """
+    Zwraca:
+        zaszyfrowane dane,
+        metadane,
+        AAD (bajty nagłówka)
+    """
+
     if not isinstance(data, (bytes, bytearray)):
-        raise TypeError("Data must be bytes.")
+        raise TypeError("Dane muszą być typu bytes.")
+
     data = bytes(data)
 
-    if len(data) < 4 + 1 + 1 + 1 + 4 + 1 + 1:
-        raise InvalidFormatError("Data too short.")
+    minimum_header_size = 4 + 1 + 1 + 1 + 4 + 1 + 1
 
-    magic = data[:4]
-    if magic != FORMAT_MAGIC:
-        raise InvalidFormatError("Magic mismatch (not an AGF1 container).")
+    if len(data) < minimum_header_size:
+        raise InvalidFormatError("Dane są zbyt krótkie.")
 
-    # Parse fixed header
-    # >4sBBBIBB matches:
-    # magic(4), ver(1), kdf_id(1), cipher_id(1), iters(u32), salt_len(u8), nonce_len(u8)
-    fixed_len = struct.calcsize(">4sBBBIBB")
-    magic, ver, kdf_id, cipher_id, iters, salt_len, nonce_len = struct.unpack(">4sBBBIBB", data[:fixed_len])
+    if data[:4] != FORMAT_MAGIC:
+        raise InvalidFormatError(
+            "Nieprawidłowy nagłówek pliku (błędna sygnatura)."
+        )
 
-    if ver != FORMAT_VERSION:
-        raise UnsupportedVersionError(f"Unsupported container version: {ver}")
+    fixed_header_size = struct.calcsize(">4sBBBIBB")
 
-    offset = fixed_len
-    need = offset + salt_len + nonce_len
-    if len(data) < need:
-        raise InvalidFormatError("Truncated header.")
+    (
+        _magic,
+        version,
+        kdf_id,
+        cipher_id,
+        iterations,
+        salt_len,
+        nonce_len,
+    ) = struct.unpack(
+        ">4sBBBIBB",
+        data[:fixed_header_size],
+    )
 
-    salt = data[offset : offset + salt_len]
+    if version != FORMAT_VERSION:
+        raise UnsupportedVersionError(
+            f"Nieobsługiwana wersja formatu pliku: {version}"
+        )
+
+    offset = fixed_header_size
+
+    required_size = offset + salt_len + nonce_len
+
+    if len(data) < required_size:
+        raise InvalidFormatError(
+            "Nagłówek pliku jest niekompletny."
+        )
+
+    salt = data[offset: offset + salt_len]
     offset += salt_len
-    nonce = data[offset : offset + nonce_len]
+
+    nonce = data[offset: offset + nonce_len]
     offset += nonce_len
 
     aad = data[:offset]
-    ciphertext = data[offset:]
-    if len(ciphertext) == 0:
-        raise InvalidFormatError("Missing ciphertext payload.")
 
-    meta = ContainerMeta(
-        version=ver,
+    ciphertext = data[offset:]
+
+    if not ciphertext:
+        raise InvalidFormatError(
+            "Brak zaszyfrowanych danych w pliku."
+        )
+
+    metadata = FileFormatMeta(
+        version=version,
         kdf_id=kdf_id,
         cipher_id=cipher_id,
-        iterations=iters,
+        iterations=iterations,
         salt=salt,
         nonce=nonce,
     )
-    return ciphertext, meta, aad
+
+    return ciphertext, metadata, aad
 
 
-def maybe_decode_base64(raw: bytes) -> bytes:
+def decode_base64(raw: bytes) -> bytes:
     """
-    If raw is a valid container -> return raw.
-    Else, try base64 decode -> if valid container -> return decoded.
-    Else raise InvalidFormatError.
+    Akceptuje:
+      - zaszyfrowany plik binarny
+      - zaszyfrowany plik zapisany w Base64
     """
-    # Try direct
+
     try:
-        _ = unpack_container(raw)
+        parse_file_format(raw)
         return raw
+
     except Exception:
         pass
 
-    # Try base64 (strip whitespace)
     try:
         stripped = b"".join(raw.split())
-        decoded = base64.b64decode(stripped, validate=True)
-        _ = unpack_container(decoded)
+
+        decoded = base64.b64decode(
+            stripped,
+            validate=True,
+        )
+
+        parse_file_format(decoded)
+
         return decoded
-    except Exception as e:
-        raise InvalidFormatError("Input is not a valid container (raw or base64).") from e
+
+    except Exception as exc:
+        raise InvalidFormatError(
+            "Plik nie jest prawidłowym zaszyfrowanym plikiem "
+            "(format binarny lub Base64)."
+        ) from exc
 
 
-def encrypt_to_container(plaintext: bytes, password: str, *, iterations: int, salt: bytes, nonce: bytes, encrypt_fn) -> bytes:
-    """
-    Helper: build header first and use it as AAD.
-    encrypt_fn must be: (nonce, plaintext, aad) -> ciphertext
-    """
-    meta = ContainerMeta(
+def encrypt_to_file_format(
+    plaintext: bytes,
+    *,
+    iterations: int,
+    salt: bytes,
+    nonce: bytes,
+    encrypt_fn,
+) -> bytes:
+    metadata = FileFormatMeta(
         version=FORMAT_VERSION,
         kdf_id=KDF_ID_PBKDF2_SHA256,
         cipher_id=CIPHER_ID_AES_256_GCM,
@@ -147,17 +211,42 @@ def encrypt_to_container(plaintext: bytes, password: str, *, iterations: int, sa
         salt=salt,
         nonce=nonce,
     )
-    header = _build_header(meta)
-    ciphertext = encrypt_fn(nonce, plaintext, header)
-    return pack_container(ciphertext, meta)
+
+    header = _build_header(metadata)
+
+    ciphertext = encrypt_fn(
+        nonce,
+        plaintext,
+        header,
+    )
+
+    return build_file_format(
+        ciphertext,
+        metadata,
+    )
 
 
-def decrypt_container(data: bytes, password: str) -> bytes:
-    ciphertext, meta, aad = unpack_container(data)
-    crypto_meta = CryptoMeta(salt=meta.salt, nonce=meta.nonce, iterations=meta.iterations)
+def decrypt_from_file_format(
+    data: bytes,
+    password: str,
+) -> bytes:
+    ciphertext, metadata, aad = parse_file_format(data)
+
+    crypto_meta = CryptoMeta(
+        salt=metadata.salt,
+        nonce=metadata.nonce,
+        iterations=metadata.iterations,
+    )
+
     try:
-        return decrypt_bytes(ciphertext, password, crypto_meta, aad=aad)
-    except InvalidTag as e:
-        # wrong password OR file modified
-        from .errors import WrongPasswordOrCorruptedFileError
-        raise WrongPasswordOrCorruptedFileError("Wrong password or corrupted file.") from e
+        return decrypt_bytes(
+            ciphertext,
+            password,
+            crypto_meta,
+            aad=aad,
+        )
+
+    except InvalidTag as exc:
+        raise WrongPasswordOrCorruptedFileError(
+            "Nieprawidłowe hasło lub uszkodzony plik."
+        ) from exc

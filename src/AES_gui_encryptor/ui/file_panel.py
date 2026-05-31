@@ -5,7 +5,7 @@ import customtkinter as ctk
 from .styles import INNER_RADIUS, card
 
 
-class FileCard:
+class FilePanel:
     def __init__(
         self,
         parent,
@@ -26,21 +26,21 @@ class FileCard:
         self._build()
 
     def _build(self) -> None:
-        self.frame = card(self.parent, "Files", self.row)
+        self.frame = card(self.parent, "Pliki", self.row)
 
         self.input_entry, self.btn_browse_input = self._path_row(
             row=1,
             variable=self.input_variable,
-            placeholder="Input file path...",
-            button_text="Browse",
+            placeholder="Ścieżka pliku wejściowego...",
+            button_text="Przeglądaj",
             command=self.on_browse_input,
         )
 
         self.output_entry, self.btn_browse_output = self._path_row(
             row=2,
             variable=self.output_variable,
-            placeholder="Output file path...",
-            button_text="Save As",
+            placeholder="Ścieżka pliku wyjściowego...",
+            button_text="Zapisz jako",
             command=self.on_browse_output,
             bottom_padding=16,
         )

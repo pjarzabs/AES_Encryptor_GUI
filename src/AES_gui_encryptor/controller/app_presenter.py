@@ -15,24 +15,11 @@ from ..ui.background import run_in_background
 from ..utils.password import generate_password
 
 
-class AppController:
-    """
-    Controller layer.
-
-    This class contains application behavior:
-    - validation,
-    - encryption/decryption actions,
-    - file dialogs,
-    - password actions,
-    - error handling.
-
-    The App class stays mostly responsible for building and updating the UI.
-    """
-
+class AppPresenter:
     def __init__(self, view) -> None:
         self.view = view
 
-    # ---------- Main actions ----------
+    # Główne rzeczy i operacje:
     def encrypt(self) -> None:
         if self.view.is_busy:
             return
@@ -42,7 +29,7 @@ class AppController:
             output_ext = normalize_extension(self.view.output_ext.get())
             self.view.output_ext.set(output_ext)
         except Exception as exc:
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror("Błąd", str(exc))
             return
 
         def work() -> str:
@@ -55,10 +42,10 @@ class AppController:
             )
 
         self._start_crypto_task(
-            status="Encrypting...",
+            status="Trwa szyfrowanie...",
             work=work,
-            success_message="Encryption finished.",
-            success_status_prefix="Done. Encrypted",
+            success_message="Szyfrowanie zakończone.",
+            success_status_prefix="Zaszyfrowano",
         )
 
     def decrypt(self) -> None:
@@ -68,17 +55,17 @@ class AppController:
         try:
             input_path, output_path, password = self._validate_common()
         except Exception as exc:
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror("Błąd", str(exc))
             return
 
         def work() -> str:
             return decrypt_file(input_path, output_path, password)
 
         self._start_crypto_task(
-            status="Decrypting...",
+            status="Trwa odszyfrowywanie...",
             work=work,
-            success_message="Decryption finished.",
-            success_status_prefix="Done. Decrypted",
+            success_message="Odszyfrowywanie zakończone.",
+            success_status_prefix="Odszyfrowano",
         )
 
     def _start_crypto_task(
@@ -91,19 +78,24 @@ class AppController:
     ) -> None:
         def on_success(final_path: str) -> None:
             self.view.output_path.set(final_path)
-            self.view.set_busy(False, f"{success_status_prefix} -> {Path(final_path).name}")
-            messagebox.showinfo("Success", success_message)
+            self.view.set_busy(
+                False,
+                f"{success_status_prefix}: {Path(final_path).name}"
+            )
+            messagebox.showinfo("Sukces!", success_message)
 
         def on_error(exc: Exception) -> None:
-            self.view.set_busy(False, "Error.")
+            self.view.set_busy(False, "Wystąpił błąd...")
             self._show_error(exc)
 
         self.view.set_busy(True, status)
         run_in_background(self.view, work, on_success, on_error)
 
-    # ---------- File dialogs ----------
+    # dialogi wyswieltane uzytkownikowui zwiazane z plikami
     def browse_input(self) -> None:
-        path = filedialog.askopenfilename(title="Select input file")
+        path = filedialog.askopenfilename(
+            title="Wybierz plik wejściowy"
+        )
 
         if not path:
             return
@@ -116,9 +108,12 @@ class AppController:
         self.view.output_ext.set(ext)
 
         path = filedialog.asksaveasfilename(
-            title="Select output file",
+            title="Wybierz plik wyjściowy",
             defaultextension=ext,
-            filetypes=[("Encrypted files", f"*{ext}"), ("All files", "*.*")],
+            filetypes=[
+                ("Pliki zaszyfrowane", f"*{ext}"),
+                ("Wszystkie pliki", "*.*"),
+            ],
         )
 
         if path:
@@ -136,64 +131,105 @@ class AppController:
         if not self.view.output_path.get().strip():
             self.view.output_path.set(input_path + ext)
 
-    # ---------- Password actions ----------
+    # rzeczy zwiazane z hasłem
     def toggle_password_visibility(self) -> None:
-        self.view.password_card.set_password_visible(self.view.show_password.get())
+        self.view.password_card.set_password_visible(
+            self.view.show_password.get()
+        )
 
     def generate_password(self) -> None:
         self.view.password.set(generate_password(20))
-        self.view.status.set("Generated password (save it!).")
+        self.view.status.set(
+            "Wygenerowano hasło (zapisz je w bezpiecznym miejscu)."
+        )
 
     def copy_password(self) -> None:
         password = self.view.password.get()
 
         if not password:
-            messagebox.showwarning("Warning", "Password is empty.")
+            messagebox.showwarning(
+                "Ostrzeżenie",
+                "Hasło jest puste."
+            )
             return
 
         self.view.clipboard_clear()
         self.view.clipboard_append(password)
-        self.view.status.set("Password copied to clipboard.")
 
-    # ---------- Small UI actions ----------
+        self.view.status.set(
+            "Skopiowano hasło do schowka."
+        )
+
+    # Pomniejsze czynności interfejsu graficznego
     def swap_paths(self) -> None:
         input_path = self.view.input_path.get()
         output_path = self.view.output_path.get()
 
         self.view.input_path.set(output_path)
         self.view.output_path.set(input_path)
-        self.view.status.set("Swapped input/output paths.")
+
+        self.view.status.set(
+            "Zamieniono ścieżki wejściową i wyjściową."
+        )
 
     def change_appearance(self, mode: str) -> None:
-        ctk.set_appearance_mode(mode)
+        mapping = {
+            "Ciemny": "Dark",
+            "Jasny": "Light",
+            "Systemowy": "System",
+        }
 
-    # ---------- Validation / errors ----------
+        ctk.set_appearance_mode(mapping[mode])
+
+    # Walidacja danych / bledy
     def _validate_common(self) -> tuple[str, str, str]:
         input_path = self.view.input_path.get().strip()
         output_path = self.view.output_path.get().strip()
         password = self.view.password.get()
 
         if not input_path:
-            raise ValueError("Input path is empty.")
+            raise ValueError(
+                "Ścieżka pliku wejściowego jest pusta."
+            )
 
         if not Path(input_path).exists():
-            raise ValueError("Input file does not exist.")
+            raise ValueError(
+                "Plik wejściowy nie istnieje."
+            )
 
         if not output_path:
-            raise ValueError("Output path is empty.")
+            raise ValueError(
+                "Ścieżka pliku wyjściowego jest pusta."
+            )
 
         if not password:
-            raise ValueError("Password is empty.")
+            raise ValueError(
+                "Hasło jest puste."
+            )
 
         return input_path, output_path, password
 
     def _show_error(self, exc: Exception) -> None:
         if isinstance(exc, WrongPasswordOrCorruptedFileError):
             messagebox.showerror(
-                "Error",
-                "Wrong password OR file corrupted/modified (GCM tag mismatch).",
+                "Błąd",
+                "Nieprawidłowe hasło lub plik został uszkodzony albo zmodyfikowany."
             )
-        elif isinstance(exc, (InvalidFormatError, UnsupportedVersionError)):
-            messagebox.showerror("Error", f"Invalid/unsupported file format: {exc}")
+
+        elif isinstance(
+            exc,
+            (
+                InvalidFormatError,
+                UnsupportedVersionError,
+            ),
+        ):
+            messagebox.showerror(
+                "Błąd",
+                f"Nieprawidłowy lub nieobsługiwany format pliku: {exc}"
+            )
+
         else:
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror(
+                "Błąd",
+                str(exc)
+            )
