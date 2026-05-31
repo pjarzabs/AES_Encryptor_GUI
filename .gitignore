@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# PyCharm
+.idea/
+*.iml
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Virtual environment
+venv/
+.venv/
