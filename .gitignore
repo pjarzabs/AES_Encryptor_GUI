@@ -19,3 +19,7 @@ Desktop.ini
 # Virtual environment
 venv/
 .venv/
+
+# Build
+build/
+dist/

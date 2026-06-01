@@ -6,7 +6,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from ..controller.app_presenter import AppPresenter
+from ..presenter.app_presenter import AppPresenter
 from ..utils.paths import resource_path
 
 from .file_panel import FilePanel
